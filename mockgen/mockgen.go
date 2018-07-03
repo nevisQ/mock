@@ -234,12 +234,7 @@ func (g *generator) Generate(pkg *model.Package, pkgName string, outputPackagePa
 
 	// Only import reflect if it's used. We only use reflect in mocked methods
 	// so only import if any of the mocked interfaces have methods.
-	for _, intf := range pkg.Interfaces {
-		if len(intf.Methods) > 0 {
-			im["reflect"] = true
-			break
-		}
-	}
+	im["reflect"] = true
 
 	// Sort keys to make import alias generation predictable
 	sorted_paths := make([]string, len(im), len(im))
