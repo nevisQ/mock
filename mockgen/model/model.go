@@ -30,6 +30,7 @@ const pkgPath = "github.com/golang/mock/mockgen/model"
 type Package struct {
 	Name       string
 	Interfaces []*Interface
+	Methods    []*Method
 	DotImports []string
 }
 
@@ -45,6 +46,9 @@ func (pkg *Package) Imports() map[string]bool {
 	im := make(map[string]bool)
 	for _, intf := range pkg.Interfaces {
 		intf.addImports(im)
+	}
+	for _, m := range pkg.Methods {
+		m.addImports(im)
 	}
 	return im
 }
