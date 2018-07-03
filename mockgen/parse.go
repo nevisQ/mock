@@ -167,6 +167,7 @@ func (p *fileParser) parseFile(importPath string, file *ast.File) (*model.Packag
 	}
 
 	var is []*model.Interface
+	var ms []*model.Method
 	for ni := range iterInterfaces(file) {
 		i, err := p.parseInterface(ni.name.String(), importPath, ni.it)
 		if err != nil {
@@ -174,9 +175,18 @@ func (p *fileParser) parseFile(importPath string, file *ast.File) (*model.Packag
 		}
 		is = append(is, i)
 	}
+	for nm := range iterMethods(file) {
+		i, v, o, err := p.parseFunc(importPath, nm.ft)
+		if err != nil {
+			return nil, err
+		}
+		ms = append(ms, &model.Method{Name: nm.name.String(), Variadic: v, Out: o, In: i})
+	}
+
 	return &model.Package{
 		Name:       file.Name.String(),
 		Interfaces: is,
+		Methods:    ms,
 	}, nil
 }
 
@@ -466,6 +476,11 @@ type namedInterface struct {
 	it   *ast.InterfaceType
 }
 
+type namedMethod struct {
+	name *ast.Ident
+	ft   *ast.FuncType
+}
+
 // Create an iterator over all interfaces in file.
 func iterInterfaces(file *ast.File) <-chan namedInterface {
 	ch := make(chan namedInterface)
@@ -486,6 +501,45 @@ func iterInterfaces(file *ast.File) <-chan namedInterface {
 				}
 
 				ch <- namedInterface{ts.Name, it}
+			}
+		}
+		close(ch)
+	}()
+	return ch
+}
+
+// Create an iterator over all interfaces in file.
+func iterMethods(file *ast.File) <-chan namedMethod {
+	ch := make(chan namedMethod)
+	go func() {
+		for _, decl := range file.Decls {
+			gd, ok := decl.(*ast.GenDecl)
+			if !ok || gd.Tok != token.VAR {
+				continue
+			}
+			for _, spec := range gd.Specs {
+				vs, ok := spec.(*ast.ValueSpec)
+				if !ok {
+					continue
+				}
+
+				for i := range vs.Names {
+					if len(vs.Values) <= i {
+						break
+					}
+
+					val, ok := vs.Values[i].(*ast.Ident)
+					if !ok {
+						continue
+					}
+
+					fd, ok := val.Obj.Decl.(*ast.FuncDecl)
+					if !ok {
+						continue
+					}
+
+					ch <- namedMethod{vs.Names[i], fd.Type}
+				}
 			}
 		}
 		close(ch)

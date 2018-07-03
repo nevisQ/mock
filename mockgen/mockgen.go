@@ -49,6 +49,7 @@ var (
 	packageOut      = flag.String("package", "", "Package of the generated code; defaults to the package of the input with a 'mock_' prefix.")
 	selfPackage     = flag.String("self_package", "", "The full package import path for the generated code. The purpose of this flag is to prevent import cycles in the generated code by trying to include its own package. This can happen if the mock's package is set to one of its inputs (usually the main one) and the output is stdio so mockgen cannot detect the final output package. Setting this flag will then tell mockgen which import to exclude.")
 	writePkgComment = flag.Bool("write_package_comment", true, "Writes package documentation comment (godoc) if true.")
+	mockMethods     = flag.Bool("mock_methods", false, "Mocks available functions from a file")
 
 	debugParser = flag.Bool("debug_parser", false, "Print out parser results only.")
 )
@@ -279,6 +280,9 @@ func (g *generator) Generate(pkg *model.Package, pkgName string, outputPackagePa
 		}
 		g.p("%v %q", pkg, path)
 	}
+	if *mockMethods {
+		g.p("%v %q", pkg.Name, pkg.Path)
+	}
 	for _, path := range pkg.DotImports {
 		g.p(". %q", path)
 	}
@@ -289,6 +293,10 @@ func (g *generator) Generate(pkg *model.Package, pkgName string, outputPackagePa
 		if err := g.GenerateMockInterface(intf, outputPackagePath); err != nil {
 			return err
 		}
+	}
+
+	if *mockMethods {
+		g.GenerateMockPackage(pkg, pkg.Methods, outputPackagePath)
 	}
 
 	return nil
@@ -348,6 +356,59 @@ func (g *generator) GenerateMockInterface(intf *model.Interface, outputPackagePa
 	g.p("}")
 
 	g.GenerateMockMethods(mockType, intf, outputPackagePath)
+
+	return nil
+}
+
+func (g *generator) GenerateMockPackage(pkg *model.Package, exported []*model.Method, outputPackagePath string) error {
+
+	mockType := fmt.Sprintf("%v_%v", g.mockName(pkg.Name), filepath.Base(g.filename)[:len(g.filename) - len(filepath.Ext(g.filename))])
+
+	g.p("")
+	g.p("// %v is a mock of %v package", mockType, pkg.Name)
+	g.p("type %v struct {", mockType)
+	g.in()
+	g.p("ctrl     *gomock.Controller")
+	g.p("recorder *%vMockRecorder", mockType)
+	g.out()
+	g.p("}")
+	g.p("")
+
+	g.p("// %vMockRecorder is the mock recorder for %v", mockType, mockType)
+	g.p("type %vMockRecorder struct {", mockType)
+	g.in()
+	g.p("mock *%v", mockType)
+	g.out()
+	g.p("}")
+	g.p("")
+
+	g.p("// New%v creates a new mock instance", mockType)
+	g.p("func New%v(ctrl *gomock.Controller) *%v {", mockType, mockType)
+	g.in()
+	g.p("mock := &%v{ctrl: ctrl}", mockType)
+	g.p("mock.recorder = &%vMockRecorder{mock}", mockType)
+	g.p("")
+	for _, exportedFn := range exported {
+
+		// TODO: make it possible to undone mocking
+
+		g.p("%v.%v = mock.%v", pkg.Name, exportedFn.Name, exportedFn.Name)
+	}
+	g.p("")
+	g.p("return mock")
+	g.out()
+	g.p("}")
+	g.p("")
+
+	// XXX: possible name collision here if someone has EXPECT in their interface.
+	g.p("// EXPECT returns an object that allows the caller to indicate expected use")
+	g.p("func (m *%v) EXPECT() *%vMockRecorder {", mockType, mockType)
+	g.in()
+	g.p("return m.recorder")
+	g.out()
+	g.p("}")
+
+	g.GenerateMockMethods(mockType, &model.Interface{Methods: exported}, outputPackagePath)
 
 	return nil
 }
